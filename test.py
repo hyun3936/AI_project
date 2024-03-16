@@ -11,22 +11,7 @@ import torch.nn as nn
 import matplotlib.pyplot as plt
 from sklearn.preprocessing import MinMaxScaler
 from torch.utils.data import DataLoader, TensorDataset
-import os
 
-app = Flask(__name__)
-
-# 날짜 형식 조정 ---------------------------------------------------------------------------------------------------------------
-
-def convert_timestamp_to_date(timestamp):
-    """밀리초 단위의 타임스탬프를 특정 시간대를 기준으로 'YYYY-MM-DD HH:MM:SS' 형태의 문자열로 변환합니다."""
-    # 서울 시간대를 지정
-    timezone = pytz.timezone('Asia/Seoul')
-    # UTC 기준의 datetime 객체를 생성
-    dt_utc = datetime.utcfromtimestamp(int(timestamp) / 1000.0)
-    # 서울 시간대로 변환
-    dt_local = dt_utc.replace(tzinfo=pytz.utc).astimezone(timezone)
-    # 지정된 형식의 문자열로 변환
-    return dt_local.strftime('%Y-%m-%d %H:%M:%S')
 
 
 # Autoencoder 클래스 정의 ---------------------------------------------------------------------------------------------------------------
@@ -54,61 +39,20 @@ class Autoencoder(nn.Module):
         decoded = decoded.view(x.size(0), x.size(1), -1)  # 최종 출력을 원본 데이터와 같은 형태로 변환
         return decoded
 
-# 결과 내보내기 ---------------------------------------------------------------------------------------------------------------
 
-@app.route('/postLog', methods=['POST'])
-def handle_post_log():
-    
-    directory = "C:/Users/user/KeepMeSafe"
-    if not os.path.exists(directory):
-        os.makedirs(directory)
-    
-    data = request.json
-    df = pd.DataFrame(data)
-    
-    #  'registerDate' 필드가 있고 타임스탬프 형식인 경우, 날짜 형식으로 변환합니다.
-    if isinstance(data, dict):  # 단일 객체 처리
-        if 'registerDate' in data:
-            data['registerDate'] = convert_timestamp_to_date(data['registerDate'])
-    elif isinstance(data, list):  # 리스트 내의 각 객체 처리
-        for item in data:
-            if 'registerDate' in item:
-                item['registerDate'] = convert_timestamp_to_date(item['registerDate'])   
-                
-
-    df['registerDate'] = pd.to_datetime(df['registerDate'])
-    df.sort_values(by='registerDate', inplace=True)
-    df.ffill(inplace=True)
-          
-    
-    file_name = "dataSaveTest7.csv"
-    fieldnames = ["id","usercode", "latitude", "longitude", "heartbeat", "temperature", "outTemp", "registerDate"]
-    
-    try:
-        with open(file_name, 'x', newline='') as csvfile:
-            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
-            writer.writeheader()
-    except FileExistsError:
-        pass # 파일이 이미 존재하면 아무것도 하지 않음
-    
-    with open(file_name, 'a', newline='') as csvfile:
-        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
-        
-        # 만약 data가 리스트라면, 각 항목을 순회하며 씁니다.
-        if isinstance(data, list):
-            for item in data:
-                writer.writerow(item)
-        else:
-            writer.writerow(data)
-
-
+@test.route('/sendData', methods=['GET'])
+def send_data():
  
 # 데이터 전처리 및 모델 클래스 정의는 여기에 포함됩니다.
 # 데이터 불러오기 및 전처리
-    # data = pd.read_csv("C:/Users/user/KeepMeSafe/dataSaveTest7.csv")
-    # df = pd.DataFrame(data)
+    data = pd.read_csv("./data/user_code_total/dataSaveTest4.csv")    
+    df = pd.DataFrame(data)
     
-    heartbeat_data = df['heartbeat'].values.reshape(-1, 1)
+    df['RegisterDate'] = pd.to_datetime(df['RegisterDate'])
+    df.sort_values(by='RegisterDate', inplace=True)
+    df.fillna(method='ffill', inplace=True)
+
+    heartbeat_data = df['Heartbeat'].values.reshape(-1, 1)
     scaler = MinMaxScaler(feature_range=(0, 1))
     heartbeat_data_scaled = scaler.fit_transform(heartbeat_data)
     
@@ -151,13 +95,13 @@ def handle_post_log():
     anomalies = [i for i, error in enumerate(reconstruction_errors) if error > threshold]
 
 # 재구성 오차의 분포를 히스토그램으로 시각화하고, 임계값을 표시합니다.
-    # plt.hist(reconstruction_errors, bins=50, alpha=0.7, color='blue', label='Reconstruction errors')
-    # plt.axvline(threshold, color='red', linestyle='dashed', linewidth=2, label='Threshold')
-    # plt.title('Histogram of Reconstruction Errors')
-    # plt.xlabel('Reconstruction error')
-    # plt.ylabel('Frequency')
-    # plt.legend()
-    # plt.show()
+    plt.hist(reconstruction_errors, bins=50, alpha=0.7, color='blue', label='Reconstruction errors')
+    plt.axvline(threshold, color='red', linestyle='dashed', linewidth=2, label='Threshold')
+    plt.title('Histogram of Reconstruction Errors')
+    plt.xlabel('Reconstruction error')
+    plt.ylabel('Frequency')
+    plt.legend()
+    plt.show()
         
     
     # 이상치로 식별된 샘플 인덱스 (예시)
@@ -170,7 +114,7 @@ def handle_post_log():
     # 결과 DataFrame 초기화
     results = pd.DataFrame({
         'status': ['SAFE'] * len(df),  # 초기 상태를 'SAFE'로 설정
-        'worker_id': df['usercode'].values  # 'UserCode'를 'worker_id'로 사용
+        'worker_id': df['UserCode'].values  # 'UserCode'를 'worker_id'로 사용
     })
     
     # 이상치에 대한 상태를 'CAUTION'으로 업데이트
@@ -180,19 +124,12 @@ def handle_post_log():
     
     # 스프링 부트 서버의 주소와 엔드포인트
     # url = 'http://localhost:8080/receiveData'
-    url = 'http://10.125.121.204:8080/postLog'
+    url = 'http://localhost:5000/receiveData'
         
     # 스프링 부트 서버에 POST 요청을 보냅니다.
     response = requests.post(url, json=results.to_dict(orient='records'))
-
     
     # 스프링 부트 서버로부터의 응답을 반환합니다.
     return jsonify(response.json()), response.status_code
 
-
-
-# 끝 ---------------------------------------------------------------------------------------------------------------
-
-if __name__ == '__main__':
-    app.run(debug=True, host="0.0.0.0", port=5000)
 
