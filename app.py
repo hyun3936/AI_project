@@ -12,103 +12,32 @@ import matplotlib.pyplot as plt
 from sklearn.preprocessing import MinMaxScaler
 from torch.utils.data import DataLoader, TensorDataset
 import os
+from Model import Autoencoder
+from DataImport import savedata
 
 app = Flask(__name__)
 
 # 날짜 형식 조정 ---------------------------------------------------------------------------------------------------------------
 
+from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
+
 def convert_timestamp_to_date(timestamp):
-    """밀리초 단위의 타임스탬프를 특정 시간대를 기준으로 'YYYY-MM-DD HH:MM:SS' 형태의 문자열로 변환합니다."""
-    # 서울 시간대를 지정
-    timezone = pytz.timezone('Asia/Seoul')
-    # UTC 기준의 datetime 객체를 생성
-    dt_utc = datetime.utcfromtimestamp(int(timestamp) / 1000.0)
-    # 서울 시간대로 변환
-    dt_local = dt_utc.replace(tzinfo=pytz.utc).astimezone(timezone)
-    # 지정된 형식의 문자열로 변환
+    """밀리초 단위의 타임스탬프를 'Asia/Seoul' 시간대를 기준으로 'YYYY-MM-DD HH:MM:SS' 형태의 문자열로 변환합니다."""
+    dt_local = datetime.fromtimestamp(int(timestamp) / 1000, tz=ZoneInfo('Asia/Seoul'))
     return dt_local.strftime('%Y-%m-%d %H:%M:%S')
-
-
-# Autoencoder 클래스 정의 ---------------------------------------------------------------------------------------------------------------
-class Autoencoder(nn.Module):
-    def __init__(self, input_dim, hidden_dim, num_layers):
-        super(Autoencoder, self).__init__()
-        # 인코더 정의: 입력 차원에서 숨겨진 차원으로 매핑하는 LSTM
-        self.encoder = nn.LSTM(input_dim, hidden_dim, num_layers, batch_first=True)
-        # 디코더 정의: 숨겨진 차원에서 원본 입력 차원으로 매핑하는 LSTM
-        self.decoder = nn.LSTM(hidden_dim, input_dim, num_layers, batch_first=True)
-        # 최종 출력을 위한 선형 계층
-        self.linear = nn.Linear(input_dim, input_dim)
-
-    def forward(self, x):
-        # 인코딩: 입력 x를 인코더를 통해 숨겨진 상태 표현으로 변환
-        _, (hn, _) = self.encoder(x)
-        # 디코딩을 위한 준비: 인코더의 마지막 hidden state를 사용하여 디코더의 입력 준비
-        hn = hn[-1].unsqueeze(0)  # 인코더의 마지막 hidden state만 사용
-        repeated_hn = hn.repeat(1, x.size(1), 1)  # 디코더 입력을 위해 차원을 맞춤
-        # 디코딩: 숨겨진 상태 표현을 원본 입력 차원으로 디코딩
-        decoded, _ = self.decoder(repeated_hn)
-        decoded = decoded.contiguous().view(-1, x.size(2))  # 선형 계층의 입력 형태로 변환
-        # 최종 출력: 선형 계층을 통해 디코딩된 데이터를 최종적으로 변환
-        decoded = self.linear(decoded)
-        decoded = decoded.view(x.size(0), x.size(1), -1)  # 최종 출력을 원본 데이터와 같은 형태로 변환
-        return decoded
 
 # 결과 내보내기 ---------------------------------------------------------------------------------------------------------------
 
 @app.route('/postLog', methods=['POST'])
 def handle_post_log():
     
-    directory = "C:/Users/user/KeepMeSafe"
-    if not os.path.exists(directory):
-        os.makedirs(directory)
-    
-    data = request.json
-    df = pd.DataFrame(data)
-    
-    #  'registerDate' 필드가 있고 타임스탬프 형식인 경우, 날짜 형식으로 변환합니다.
-    if isinstance(data, dict):  # 단일 객체 처리
-        if 'registerDate' in data:
-            data['registerDate'] = convert_timestamp_to_date(data['registerDate'])
-    elif isinstance(data, list):  # 리스트 내의 각 객체 처리
-        for item in data:
-            if 'registerDate' in item:
-                item['registerDate'] = convert_timestamp_to_date(item['registerDate'])   
-                
-
-    df['registerDate'] = pd.to_datetime(df['registerDate'])
-    df.sort_values(by='registerDate', inplace=True)
-    df.ffill(inplace=True)
-          
-    
-    file_name = "dataSaveTest7.csv"
-    fieldnames = ["id","usercode", "latitude", "longitude", "heartbeat", "temperature", "outTemp", "registerDate"]
-    
-    try:
-        with open(file_name, 'x', newline='') as csvfile:
-            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
-            writer.writeheader()
-    except FileExistsError:
-        pass # 파일이 이미 존재하면 아무것도 하지 않음
-    
-    with open(file_name, 'a', newline='') as csvfile:
-        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
-        
-        # 만약 data가 리스트라면, 각 항목을 순회하며 씁니다.
-        if isinstance(data, list):
-            for item in data:
-                writer.writerow(item)
-        else:
-            writer.writerow(data)
-
-
+    # data 호출
+    savedata(data)
  
 # 데이터 전처리 및 모델 클래스 정의는 여기에 포함됩니다.
-# 데이터 불러오기 및 전처리
-    # data = pd.read_csv("C:/Users/user/KeepMeSafe/dataSaveTest7.csv")
-    # df = pd.DataFrame(data)
     
-    heartbeat_data = df['heartbeat'].values.reshape(-1, 1)
+    heartbeat_data = savedata.df['heartbeat'].values.reshape(-1, 1)
     scaler = MinMaxScaler(feature_range=(0, 1))
     heartbeat_data_scaled = scaler.fit_transform(heartbeat_data)
     
@@ -127,10 +56,10 @@ def handle_post_log():
     # DataLoader 생성
     batch_size = 16
     dataset = TensorDataset(X, X)
-    data_loader = DataLoader(dataset=dataset, batch_size=batch_size, shuffle=True)
+    data_loader = DataLoader(dataset=dataset, batch_size=batch_size, shuffle=False)
     
 # 모델 인스턴스 생성
-    model = Autoencoder(input_dim=1, hidden_dim=50, num_layers=2)
+    model = Autoencoder(input_dim=1, hidden_dim=50, num_layers=2) 
     criterion = torch.nn.MSELoss()  # 평균 제곱 오차 손실 함수
 
 # 모델을 평가 모드로 설정하고, 재구성 오차를 계산하여 이상치 탐지 기준을 설정합니다.
@@ -149,17 +78,7 @@ def handle_post_log():
 
 # 재구성 오차를 기반으로 이상치를 식별합니다.
     anomalies = [i for i, error in enumerate(reconstruction_errors) if error > threshold]
-
-# 재구성 오차의 분포를 히스토그램으로 시각화하고, 임계값을 표시합니다.
-    # plt.hist(reconstruction_errors, bins=50, alpha=0.7, color='blue', label='Reconstruction errors')
-    # plt.axvline(threshold, color='red', linestyle='dashed', linewidth=2, label='Threshold')
-    # plt.title('Histogram of Reconstruction Errors')
-    # plt.xlabel('Reconstruction error')
-    # plt.ylabel('Frequency')
-    # plt.legend()
-    # plt.show()
         
-    
     # 이상치로 식별된 샘플 인덱스 (예시)
     anomalies = [0]  # 첫 번째 샘플이 이상치로 가정
     
@@ -169,8 +88,8 @@ def handle_post_log():
     
     # 결과 DataFrame 초기화
     results = pd.DataFrame({
-        'status': ['SAFE'] * len(df),  # 초기 상태를 'SAFE'로 설정
-        'worker_id': df['usercode'].values  # 'UserCode'를 'worker_id'로 사용
+        'status': ['SAFE'] * len(savedata.df),  # 초기 상태를 'SAFE'로 설정
+        'worker_id': savedata.df['usercode'].values  # 'UserCode'를 'worker_id'로 사용
     })
     
     # 이상치에 대한 상태를 'CAUTION'으로 업데이트
@@ -178,21 +97,11 @@ def handle_post_log():
         if idx < len(results):  # 인덱스가 결과 DataFrame의 범위 내에 있는지 확인
             results.at[idx, 'status'] = 'CAUTION'
     
-    # 스프링 부트 서버의 주소와 엔드포인트
-    # url = 'http://localhost:8080/receiveData'
-    url = 'http://10.125.121.204:8080/postLog'
-        
-    # 스프링 부트 서버에 POST 요청을 보냅니다.
-    response = requests.post(url, json=results.to_dict(orient='records'))
 
-    
-    # 스프링 부트 서버로부터의 응답을 반환합니다.
-    return jsonify(response.json()), response.status_code
-
+    return jsonify(results)
 
 
 # 끝 ---------------------------------------------------------------------------------------------------------------
 
 if __name__ == '__main__':
     app.run(debug=True, host="0.0.0.0", port=5000)
-
