@@ -137,7 +137,7 @@ def handle_post_log(usercode):
     # 임계값 설정 (이전에 정의한 방식을 그대로 사용)
     mean_reconstruction_error = np.mean(reconstruction_errors)
     std_reconstruction_error = np.std(reconstruction_errors)
-    threshold = mean_reconstruction_error + 1 * std_reconstruction_error
+    threshold = mean_reconstruction_error + 2 * std_reconstruction_error
 
     # 상태 값에 대한 명시적 정의
     SAFE = 0
@@ -151,7 +151,8 @@ def handle_post_log(usercode):
     # 결과 DataFrame 초기화
     results = pd.DataFrame({
         'status': [SAFE] * len(df),  # 모든 초기 상태를 'SAFE'로 설정
-        'worker_id': df['usercode'].values  # 'UserCode'를 'worker_id'로 사용
+        'worker_id': df['usercode'].values,  # 'UserCode'를 'worker_id'로 사용
+        'heartbeat': df['heartbeat'].values  # 'heartbeat' 값을 추가
     })
 
     # 이상치에 대한 상태를 'check'으로 업데이트
@@ -175,10 +176,10 @@ def handle_post_log(usercode):
     }
 
     # 결과 출력 (Flask 등의 웹 프레임워크 사용 시)
-    print(f"results : \n{results}")
+    print(f"results : \n{results}\n")
     print(f"result : {result}")
         
-    print(f"threshold : {threshold}")
+    print(f"\n threshold : {threshold}")
 
     return jsonify(result)
     
